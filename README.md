@@ -128,6 +128,20 @@ live-vs-saved readings, disk/publish failures, router access declarations, and
 the webapp's grouping, percent conversion, polling, edits and error handling.
 No live Signal K server or physical hardware is required for these tests.
 
+## Releasing
+
+GitHub Actions runs tests on Node 18, 22 and 24. A pushed `v` tag matching
+`package.json` runs those tests before publishing to npm using trusted publishing
+and provenance. Stable versions receive the npm `latest` tag; prereleases
+receive `next`. A manually dispatched publish workflow runs tests only and
+does not publish. Create GitHub releases separately when appropriate.
+
+The npm package's trusted publisher must be configured for this repository and
+the `publish.yml` workflow, with permission for `npm publish`. npm requires
+the first successful publish within two days of adding the trusted publisher,
+otherwise the configuration expires. Confirm the workflow and public registry
+before restricting other publishing methods.
+
 ## License
 
 MIT.
