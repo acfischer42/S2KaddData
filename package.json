@@ -1,20 +1,41 @@
 {
   "name": "signalk-s2k-add-data",
-  "version": "0.1.0",
+  "version": "0.1.1-ci.0",
   "description": "S2KaddData: manually edit and persist configured Signal K self values.",
   "license": "MIT",
   "author": "acfischer42",
   "main": "index.js",
-  "engines": { "node": ">=18" },
-  "repository": { "type": "git", "url": "https://github.com/acfischer42/S2KaddData.git" },
-  "keywords": ["signalk-node-server-plugin", "signalk-webapp", "signalk-category-utility"],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/acfischer42/S2KaddData.git"
+  },
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-webapp",
+    "signalk-category-utility"
+  ],
   "signalk-plugin-enabled-by-default": false,
-  "signalk": { "displayName": "S2KaddData", "appIcon": "./icon.svg" },
-  "files": ["index.js", "lib", "public", "icon.svg", "README.md", "LICENSE"],
+  "signalk": {
+    "displayName": "S2KaddData",
+    "appIcon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "lib",
+    "public",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node --test test/*.test.js",
     "check": "node --check index.js && node --check lib/values.js && node --check public/app.mjs && node --check scripts/preview.js",
     "preview": "node scripts/preview.js"
   },
-  "devDependencies": { "jsdom": "^26.1.0" }
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  }
 }
