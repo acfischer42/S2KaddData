@@ -17,12 +17,18 @@ export function mount(document, { fetch: fetcher = globalThis.fetch, base = new 
   const container = document.getElementById('entries')
   const errorBox = document.getElementById('error')
   const status = document.getElementById('status')
+  const version = document.getElementById('version')
+  const actionStatus = document.getElementById('action-status')
+  const details = document.getElementById('value-details')
   const grouping = document.getElementById('grouping')
   const refreshButton = document.getElementById('refresh')
   const rows = new Map()
+  const groupOpen = new Map()
   let latest = null
   let busy = false
   let stopped = false
+  let selectedPath = null
+  let errorKind = null
 
   function element(tag, text, className) {
     const node = document.createElement(tag)
@@ -30,9 +36,20 @@ export function mount(document, { fetch: fetcher = globalThis.fetch, base = new 
     if (className) node.className = className
     return node
   }
-  function error(message) {
+  function error(message, kind = null) {
     errorBox.textContent = message
     errorBox.hidden = !message
+    errorKind = message ? kind : null
+  }
+  function showDetails(entry) {
+    document.getElementById('details-name').textContent = entry.nickname
+    document.getElementById('details-path').textContent = entry.path
+    document.getElementById('details-source').textContent = entry.source || 'unknown'
+    document.getElementById('details-updated').textContent = entry.timestamp || 'unknown'
+    document.getElementById('details-saved').textContent = entry.saved
+      ? `${displayValue(entry, entry.saved.value)} - ${entry.saved.updatedAt}`
+      : 'No manual value saved yet.'
+    details.hidden = false
   }
   async function request(route, options) {
     const response = await fetcher(new URL(route, base), { credentials: 'same-origin', cache: 'no-store', ...options })
@@ -49,13 +66,12 @@ export function mount(document, { fetch: fetcher = globalThis.fetch, base = new 
   }
 
   function makeRow(entry) {
-    const form = element('form', undefined, 'value-card')
-    const title = element('h3', entry.nickname)
-    const path = element('code', entry.path)
-    const current = element('p')
-    const saved = element('p', undefined, 'hint')
-    const provenance = element('p', undefined, 'hint')
-    const label = element('label', `New value${entry.display === 'percent' ? ' (%)' : ''}`)
+    const form = element('form', undefined, 'value-row')
+    const title = element('button', entry.nickname, 'value-name')
+    title.type = 'button'
+    title.title = 'Show value details'
+    const current = element('span', undefined, 'value-current')
+    const label = element('label', `New value for ${entry.nickname}${entry.display === 'percent' ? ' (%)' : ''}`, 'sr-only')
     const input = element('input')
     input.id = `value-${entry.path}`
     label.htmlFor = input.id
@@ -72,20 +88,19 @@ export function mount(document, { fetch: fetcher = globalThis.fetch, base = new 
       }
     }
     if (entry.type === 'string') input.maxLength = 4096
-    const button = element('button', 'Save and publish')
+    const button = element('button', 'Save')
     button.type = 'submit'
-    const feedback = element('p', '', 'feedback')
-    feedback.setAttribute('role', 'status')
-    const row = { form, input, button, current, saved, provenance, title, entry, dirty: false, saving: false }
-    input.addEventListener('input', () => { row.dirty = true; feedback.textContent = '' })
-    form.append(title, path, current, saved, provenance, label, input, button, feedback)
+    const row = { form, input, button, current, title, label, entry, dirty: false, saving: false }
+    title.addEventListener('click', () => { selectedPath = row.entry.path; showDetails(row.entry) })
+    input.addEventListener('input', () => { row.dirty = true })
+    form.append(title, current, label, input, button)
     form.addEventListener('submit', async event => {
       event.preventDefault()
       if (row.saving || !latest?.running) return
       row.saving = true
       button.disabled = true
       input.disabled = true
-      feedback.textContent = 'Saving...'
+      actionStatus.textContent = `Saving ${row.entry.nickname}...`
       try {
         const value = readInput(row.entry, input)
         const state = await request('values', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: row.entry.path, value }) })
@@ -93,10 +108,10 @@ export function mount(document, { fetch: fetcher = globalThis.fetch, base = new 
         row.saving = false
         render(state)
         error('')
-        feedback.textContent = 'Saved to disk and published.'
+        actionStatus.textContent = `${row.entry.nickname}: saved to disk and published.`
       } catch (failure) {
-        feedback.textContent = `Not confirmed: ${failure.message}`
-        error(failure.message)
+        actionStatus.textContent = `${row.entry.nickname}: save not confirmed.`
+        error(failure.message, 'save')
       } finally {
         row.saving = false
         button.disabled = !latest?.running
@@ -107,39 +122,43 @@ export function mount(document, { fetch: fetcher = globalThis.fetch, base = new 
   }
 
   function rebuildGroups() {
+    for (const group of container.querySelectorAll('details')) {
+      groupOpen.set(group.firstElementChild.textContent, group.open)
+    }
     container.replaceChildren()
+    if (grouping.value === 'flat') {
+      for (const row of rows.values()) container.append(row.form)
+      return
+    }
+
     const groups = new Map()
     for (const row of rows.values()) {
-      let parent = container
-      if (grouping.value === 'tree') {
-        const segments = row.entry.path.split('.').slice(0, -1)
-        for (let index = 0; index < segments.length; index++) {
-          const key = segments.slice(0, index + 1).join('.')
-          if (!groups.has(key)) {
-            const details = element('details')
-            details.open = true
-            details.append(element('summary', segments[index]))
-            parent.append(details)
-            groups.set(key, details)
-          }
-          parent = groups.get(key)
-        }
+      const name = row.entry.group || 'Ungrouped'
+      if (!groups.has(name)) {
+        const group = element('details')
+        group.open = groupOpen.get(name) ?? true
+        group.append(element('summary', name))
+        groups.set(name, group)
+        container.append(group)
       }
-      parent.append(row.form)
+      groups.get(name).append(row.form)
     }
   }
 
   function render(state) {
     latest = state
-    status.textContent = state.running ? `Connected - ${state.entries.length} configured values - v${state.version}` : 'Plugin stopped. Enable it in Plugin Config.'
+    version.textContent = `v${state.version}`
+    status.textContent = state.running ? `Connected - ${state.entries.length} configured values` : 'Plugin stopped. Enable it in Plugin Config.'
     if (state.lastError) error(state.lastError)
     let changed = false
+    const previousOrder = [...rows.keys()]
     const paths = new Set(state.entries.map(entry => entry.path))
     for (const key of rows.keys()) {
       if (!paths.has(key)) { rows.delete(key); changed = true }
     }
     for (const entry of state.entries) {
       let row = rows.get(entry.path)
+      if (row && row.entry.group !== entry.group) changed = true
       if (row && (row.entry.type !== entry.type || row.entry.display !== entry.display ||
           row.entry.minimum !== entry.minimum || row.entry.maximum !== entry.maximum)) {
         rows.delete(entry.path)
@@ -151,10 +170,13 @@ export function mount(document, { fetch: fetcher = globalThis.fetch, base = new 
         changed = true
       }
       row.entry = entry
-      row.title.textContent = entry.nickname
-      row.current.textContent = `Current: ${entry.available ? displayValue(entry, entry.current) : 'Not available'}`
-      row.saved.textContent = entry.saved ? `Last manual: ${displayValue(entry, entry.saved.value)} - ${entry.saved.updatedAt}` : 'No manual value saved yet.'
-      row.provenance.textContent = `Source: ${entry.source || 'unknown'} | Updated: ${entry.timestamp || 'unknown'}`
+      row.title.textContent = `${entry.nickname}:`
+      row.title.setAttribute('aria-label', `${entry.nickname}: show value details`)
+      row.label.textContent = `New value for ${entry.nickname}${entry.display === 'percent' ? ' (%)' : ''}`
+      row.current.textContent = entry.available ? displayValue(entry, entry.current) : 'Not available'
+      row.current.title = `Current: ${row.current.textContent}`
+      row.current.setAttribute('aria-label', `Current value: ${row.current.textContent}`)
+      if (selectedPath === entry.path) showDetails(entry)
       row.button.disabled = !state.running || row.saving
       row.input.disabled = !state.running || row.saving
       if (!row.dirty && !row.saving && document.activeElement !== row.input) {
@@ -163,7 +185,15 @@ export function mount(document, { fetch: fetcher = globalThis.fetch, base = new 
         else row.input.value = value === null || value === undefined || typeof value !== entry.type ? '' : String(entry.display === 'percent' ? Number((value * 100).toFixed(6)) : value)
       }
     }
+    if (changed || previousOrder.length !== state.entries.length ||
+        state.entries.some((entry, index) => entry.path !== previousOrder[index])) {
+      const orderedRows = state.entries.map(entry => [entry.path, rows.get(entry.path)])
+      rows.clear()
+      for (const [path, row] of orderedRows) rows.set(path, row)
+      changed = true
+    }
     if (changed) rebuildGroups()
+    if (selectedPath && !paths.has(selectedPath)) { selectedPath = null; details.hidden = true }
     if (!rows.size) container.textContent = 'No editable values. Add entries in Plugin Config.'
   }
 
@@ -173,11 +203,12 @@ export function mount(document, { fetch: fetcher = globalThis.fetch, base = new 
     refreshButton.disabled = true
     try {
       const state = await request('state')
-      if (!stopped) { error(''); render(state) }
-    } catch (failure) { if (!stopped) error(failure.message) }
+      if (!stopped) { if (errorKind === 'refresh') error(''); render(state) }
+    } catch (failure) { if (!stopped) error(failure.message, 'refresh') }
     finally { busy = false; refreshButton.disabled = false }
   }
   grouping.addEventListener('change', rebuildGroups)
+  document.getElementById('close-details').addEventListener('click', () => { selectedPath = null; details.hidden = true })
   refreshButton.addEventListener('click', refresh)
   const ready = refresh()
   const timer = interval(refresh, 5000)

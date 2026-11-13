@@ -24,6 +24,7 @@ module.exports = function (app) {
             properties: {
               path: { type: 'string', title: 'Signal K path', description: 'Relative to vessels.self, e.g. tanks.fuel.0.currentLevel.' },
               nickname: { type: 'string', title: 'Nickname', default: '' },
+              group: { type: 'string', title: 'Group', default: '', maxLength: 120, description: 'Optional. Values without a group appear under Ungrouped.' },
               type: { type: 'string', title: 'Value type', enum: ['number', 'string', 'boolean'], default: 'number' },
               display: { type: 'string', title: 'Number display', enum: ['native', 'percent'], default: 'native', description: 'Percent converts 42 in the webapp to the Signal K ratio 0.42.' },
               minimum: { type: 'number', title: 'Minimum (optional, Signal K units)' },

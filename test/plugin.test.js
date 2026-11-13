@@ -71,9 +71,28 @@ test('configured paths only, strict types, bounds, ratios and safe paths', () =>
     { entries: [{ ...entries[0], minimum: 2, maximum: 1 }] },
     { entries: [{ ...entries[1], display: 'percent' }] },
     { entries: [{ ...entries[1], minimum: 0 }] },
-    { entries: [{ ...entries[0], minimum: Infinity }] }
+    { entries: [{ ...entries[0], minimum: Infinity }] },
+    { entries: [{ ...entries[0], group: 42 }] },
+    { entries: [{ ...entries[0], group: null }] },
+    { entries: [{ ...entries[0], group: 'x'.repeat(121) }] }
   ]) assert.throws(() => configure(bad))
   assert.deepEqual(configure(), [])
+  assert.equal(configure({ entries: [{ ...entries[0], group: '  Engine room  ' }] })[0].group, 'Engine room')
+  assert.equal(configure({ entries: [{ ...entries[0], group: '   ' }] })[0].group, '')
+  assert.equal(configure({ entries: [entries[0]] })[0].group, '')
+})
+
+test('group configuration is exposed in state without changing saved values or startup restoration', t => {
+  const f = fixture(t)
+  assert.equal(f.plugin.schema.properties.entries.items.properties.group.type, 'string')
+  f.plugin.start({ entries: [{ ...entries[0], group: ' Tanks ' }] })
+  assert.equal(f.request('GET', '/state').body.entries[0].group, 'Tanks')
+  assert.equal(f.request('POST', '/values', { path: entries[0].path, value: 0.42 }).status, 200)
+  f.plugin.stop()
+  const restarted = fixture(t, { dir: f.dir })
+  restarted.plugin.start({ entries: [{ ...entries[0], group: 'Fuel' }] })
+  assert.equal(restarted.request('GET', '/state').body.entries[0].group, 'Fuel')
+  assert.equal(restarted.messages.at(-1).delta.updates[0].values[0].value, 0.42)
 })
 
 test('publishes typed self deltas, persists and restores through a new instance', t => {

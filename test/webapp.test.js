@@ -7,8 +7,8 @@ const path = require('node:path')
 const { JSDOM } = require('jsdom')
 const settle = () => new Promise(resolve => setImmediate(resolve))
 const html = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8')
-const entry = { path: 'tanks.fuel.0.currentLevel', nickname: 'Fuel', type: 'number', display: 'percent', current: 0.42, available: true, saved: null, source: 'sensor', timestamp: '2026-11-12T06:00:00Z' }
-const initial = () => ({ running: true, version: '0.1.0', entries: [{ ...entry }, { path: 'tanks.fuel.0.name', nickname: 'Name', type: 'string', display: 'native', current: 'Fuel port', available: true, saved: null }, { path: 'electrical.switches.manual.state', nickname: 'Enabled', type: 'boolean', display: 'native', current: false, available: true, saved: null }] })
+const entry = { path: 'tanks.fuel.0.currentLevel', nickname: 'Fuel', group: 'Tanks', type: 'number', display: 'percent', current: 0.42, available: true, saved: null, source: 'sensor', timestamp: '2026-11-12T06:00:00Z' }
+const initial = () => ({ running: true, version: '0.1.0', entries: [{ ...entry }, { path: 'tanks.fuel.0.name', nickname: 'Name', group: 'Tanks', type: 'string', display: 'native', current: 'Fuel port', available: true, saved: null }, { path: 'electrical.switches.manual.state', nickname: 'Enabled', type: 'boolean', display: 'native', current: false, available: true, saved: null }] })
 
 async function fixture(t) {
   const { mount } = await import('../public/app.mjs')
@@ -36,11 +36,20 @@ async function fixture(t) {
   return { document: dom.window.document, window: dom.window, app, requests, state, fail(message) { failure = message } }
 }
 
-test('tree grouping, live values and nicknames render; flat grouping retains edits', async t => {
+test('configured groups, live values and nicknames render; flat view retains edits', async t => {
   const f = await fixture(t)
   assert.equal(f.document.querySelectorAll('form').length, 3)
-  assert.ok([...f.document.querySelectorAll('summary')].some(node => node.textContent === 'tanks'))
-  assert.match(f.document.querySelector('form').textContent, /Current: 42%/)
+  assert.deepEqual([...f.document.querySelectorAll('summary')].map(node => node.textContent), ['Tanks', 'Ungrouped'])
+  assert.equal(f.document.querySelector('header #version').textContent, 'v0.1.0')
+  assert.equal(f.document.querySelector('footer #status').textContent, 'Connected - 3 configured values')
+  assert.equal(f.document.querySelector('#grouping option').textContent, 'Groups')
+  assert.equal(f.document.getElementById('refresh').textContent, 'Refresh')
+  assert.match(f.document.querySelector('footer').textContent, /Changes are published immediately/)
+  const form = f.document.querySelector('form')
+  assert.equal(form.querySelector('.value-name').textContent, 'Fuel:')
+  assert.equal(form.querySelector('.value-current').textContent, '42%')
+  assert.equal(form.querySelector('button[type=submit]').textContent, 'Save')
+  assert.equal(form.querySelector('label').textContent, 'New value for Fuel (%)')
   assert.equal(f.document.querySelector('input').value, '42')
   assert.match(f.requests[0].url, /\/plugins\/signalk-s2k-add-data\/state$/)
   const input = f.document.querySelector('input')
@@ -52,6 +61,50 @@ test('tree grouping, live values and nicknames render; flat grouping retains edi
   assert.equal(f.document.querySelector('input').value, '47')
 })
 
+test('group changes move existing rows, preserve edits and leave unaffected refreshes collapsed', async t => {
+  const f = await fixture(t)
+  f.state.entries.push({ ...entry, path: 'tanks.freshWater.23.currentLevel', nickname: 'Water', group: 'Water' })
+  await f.app.refresh()
+  assert.deepEqual([...f.document.querySelectorAll('summary')].map(node => node.textContent), [
+    'Tanks', 'Ungrouped', 'Water'
+  ])
+  const groups = [...f.document.querySelectorAll('details')]
+  const tanks = groups.find(group => group.firstElementChild.textContent === 'Tanks')
+  assert.equal(tanks.querySelectorAll('form').length, 2)
+  tanks.open = false
+  await f.app.refresh()
+  assert.equal(tanks.open, false)
+  const input = tanks.querySelector('input')
+  input.value = '47'
+  input.dispatchEvent(new f.window.Event('input'))
+  f.state.entries[0].group = 'Water'
+  await f.app.refresh()
+  assert.equal([...f.document.querySelectorAll('details')].find(group => group.firstElementChild.textContent === 'Tanks').open, false)
+  const water = [...f.document.querySelectorAll('details')].find(group => group.firstElementChild.textContent === 'Water')
+  assert.equal(water.querySelectorAll('form').length, 2)
+  assert.equal(water.querySelector('input').value, '47')
+  f.document.getElementById('grouping').value = 'flat'
+  f.document.getElementById('grouping').dispatchEvent(new f.window.Event('change'))
+  f.document.getElementById('grouping').value = 'groups'
+  f.document.getElementById('grouping').dispatchEvent(new f.window.Event('change'))
+  assert.equal([...f.document.querySelectorAll('details')].find(group => group.firstElementChild.textContent === 'Tanks').open, false)
+  assert.equal([...f.document.querySelectorAll('details')].find(group => group.firstElementChild.textContent === 'Water').querySelector('input').value, '47')
+})
+
+test('group names are text, ungrouped entries share a section, and configuration order is respected', async t => {
+  const f = await fixture(t)
+  f.state.entries[0].group = '<img src=x>'
+  f.state.entries[1].group = 'Ungrouped'
+  f.state.entries.reverse()
+  await f.app.refresh()
+  const groups = [...f.document.querySelectorAll('details')]
+  assert.deepEqual(groups.map(group => group.firstElementChild.textContent), ['Ungrouped', '<img src=x>'])
+  assert.equal(groups[0].querySelectorAll('form').length, 2)
+  assert.equal(f.document.querySelector('summary img'), null)
+  f.document.getElementById('grouping').value = 'flat'
+  f.document.getElementById('grouping').dispatchEvent(new f.window.Event('change'))
+  assert.deepEqual([...f.document.querySelectorAll('.value-name')].map(node => node.textContent), ['Enabled:', 'Name:', 'Fuel:'])
+})
 test('polling refreshes live data without overwriting dirty inputs; save sends SI ratio', async t => {
   const f = await fixture(t)
   const input = f.document.querySelector('input')
@@ -60,13 +113,14 @@ test('polling refreshes live data without overwriting dirty inputs; save sends S
   f.state.entries[0].current = 0.4
   await f.app.refresh()
   assert.equal(input.value, '47')
-  assert.match(f.document.querySelector('form').textContent, /Current: 40%/)
+  assert.equal(f.document.querySelector('.value-current').textContent, '40%')
   f.document.querySelector('form').dispatchEvent(new f.window.Event('submit', { cancelable: true }))
   await settle()
   const post = f.requests.find(item => item.options.method === 'POST')
   assert.deepEqual(JSON.parse(post.options.body), { path: entry.path, value: 0.47 })
-  assert.match(f.document.querySelector('form').textContent, /Saved to disk and published/)
-  assert.match(f.document.querySelector('form').textContent, /Last manual: 47%/)
+  assert.match(f.document.getElementById('action-status').textContent, /Fuel: saved to disk and published/)
+  f.document.querySelector('.value-name').click()
+  assert.match(f.document.getElementById('details-saved').textContent, /47%/)
 })
 
 test('text and booleans are typed; text cannot inject markup', async t => {
@@ -91,15 +145,37 @@ test('empty numbers fail locally and permission failures remain visible without 
   input.value = ''
   form.dispatchEvent(new f.window.Event('submit', { cancelable: true }))
   await settle()
-  assert.match(form.textContent, /empty field is not zero/)
+  assert.match(f.document.getElementById('error').textContent, /empty field is not zero/)
   assert.equal(f.requests.filter(item => item.options.method === 'POST').length, 0)
   input.value = '50'
   f.fail('Permission denied')
   form.dispatchEvent(new f.window.Event('submit', { cancelable: true }))
   await settle()
   assert.equal(f.document.getElementById('error').hidden, false)
-  assert.match(form.textContent, /Not confirmed: Permission denied/)
+  assert.match(f.document.getElementById('action-status').textContent, /Fuel: save not confirmed/)
+  assert.match(f.document.getElementById('error').textContent, /Permission denied/)
   assert.equal(form.querySelector('button').disabled, false)
+  f.fail(null)
+  await f.app.refresh()
+  assert.match(f.document.getElementById('error').textContent, /Permission denied/)
+})
+
+test('parameter details preserve path, source and manual value and update when live data changes', async t => {
+  const f = await fixture(t)
+  f.document.querySelector('.value-name').click()
+  const details = f.document.getElementById('value-details')
+  assert.equal(details.hidden, false)
+  assert.equal(f.document.getElementById('details-path').textContent, entry.path)
+  assert.equal(f.document.getElementById('details-source').textContent, 'sensor')
+  assert.equal(f.document.getElementById('details-updated').textContent, entry.timestamp)
+  assert.match(f.document.getElementById('details-saved').textContent, /No manual/)
+  f.state.entries[0].source = 'another-sensor'
+  f.state.entries[0].saved = { value: 0.3, updatedAt: '2026-11-12T06:00:00Z' }
+  await f.app.refresh()
+  assert.equal(f.document.getElementById('details-source').textContent, 'another-sensor')
+  assert.match(f.document.getElementById('details-saved').textContent, /30%/)
+  f.document.getElementById('close-details').click()
+  assert.equal(details.hidden, true)
 })
 
 test('stopped and empty states are explicit', async t => {

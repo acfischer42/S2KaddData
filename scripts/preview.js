@@ -27,8 +27,8 @@ const router = {
 }
 plugin.registerWithRouter(router)
 plugin.start({ entries: [
-  { path: 'tanks.fuel.0.currentLevel', nickname: 'Fuel tank', type: 'number', display: 'percent' },
-  { path: 'tanks.fuel.0.name', nickname: 'Tank name', type: 'string' },
+  { path: 'tanks.fuel.0.currentLevel', nickname: 'Fuel tank', group: 'Tanks', type: 'number', display: 'percent' },
+  { path: 'tanks.fuel.0.name', nickname: 'Tank name', group: 'Tanks', type: 'string' },
   { path: 'electrical.switches.manual.state', nickname: 'Manual switch', type: 'boolean' }
 ] })
 const files = new Map([

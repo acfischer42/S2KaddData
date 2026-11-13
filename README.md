@@ -1,14 +1,15 @@
 # S2KaddData
 
 A Signal K plugin and webapp for manually entering vessel data before a sensor or
-automation is available. Configure an allowlist of self paths, nicknames and
-types, then edit their values from a browser. The app shows current live values,
+automation is available. Configure an allowlist of self paths, nicknames, optional
+groups and types, then edit their values from a browser. The app shows current live values,
 their source and timestamp, and the last manually saved value separately.
 
 ## Features
 
 - Numbers, text and booleans; optional numeric bounds.
-- Expandable grouping by the Signal K path tree, or a flat list.
+- Compact one-line editing with expandable configured groups, or a flat list.
+- Select a parameter name to see its path, source, timestamp and last manual value.
 - Percentage input: enter **42** to publish the Signal K ratio **0.42**.
 - Persistent manual values, restored when the plugin/server starts.
 - No periodic republishing: sensors can overwrite the live value afterward.
@@ -19,13 +20,12 @@ their source and timestamp, and the last manually saved value separately.
 
 Requires Signal K Server with Node.js 18 or newer.
 
-This repository is not yet published on npm. For a test installation, run
-`npm pack` in the checkout, copy the resulting archive to the vessel, then install
-it **from the Signal K configuration directory**:
+Install **S2KaddData** through the Signal K Appstore, or install it from npm
+in the Signal K configuration directory:
 
 ```sh
 cd /data/conf/signalk
-npm install /path/to/signalk-s2k-add-data-0.1.0.tgz
+npm install signalk-s2k-add-data
 ```
 
 Restart Signal K, enable **Server -> Plugin Config -> S2KaddData**, add entries,
@@ -35,15 +35,25 @@ and open **Webapps -> S2KaddData**. A package upgrade does not replace plugin da
 
 Configure these entries (paths are relative to `vessels.self`):
 
-| Path | Nickname | Type | Display |
-| --- | --- | --- | --- |
-| `tanks.fuel.0.name` | Fuel tank name | string | native |
-| `tanks.fuel.0.currentLevel` | Fuel level | number | percent |
+| Path | Nickname | Group | Type | Display |
+| --- | --- | --- | --- | --- |
+| `tanks.fuel.0.name` | Fuel tank name | Tanks | string | native |
+| `tanks.fuel.0.currentLevel` | Fuel level | Tanks | number | percent |
+
+Group names are optional, case-sensitive, and trimmed. Entries with no group
+appear together under **Ungrouped**; a group explicitly named `Ungrouped` joins
+that same section. Groups and their entries appear in configuration order.
+Existing configurations without group names continue to work.
 
 Save `Fuel` for the name and `42` for the level in the webapp. Signal K receives
 `"Fuel"` and `0.42` respectively. A tank is created by publishing its paths;
 there is no separate tank creation operation. Chiplog can capture published tank
 levels for future passages; this does not change historical passages.
+
+`currentLevel` is a fraction of tank capacity, not a sounding or fluid depth.
+For example, 42 cm cannot be entered as 42% without converting the measurement
+using the tank's geometry or calibration. A custom path can store a physical
+measurement in metres, but Chiplog will not automatically treat it as a tank level.
 
 Numbers use **Signal K SI units**: volume/capacity in m3, speed in m/s,
 temperature in kelvin, angles in radians. Percentage display is the only
